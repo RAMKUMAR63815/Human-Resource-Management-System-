@@ -1044,6 +1044,3 @@ The project demonstrates full-stack development concepts, REST API integration, 
 
 ---
 
-## License
-
-Add an appropriate license before distributing the project publicly.

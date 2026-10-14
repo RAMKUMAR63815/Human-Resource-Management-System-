@@ -34,9 +34,6 @@ class PayrollRecordSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
-from .models import SalaryPayment
-
-
 class SalaryPaymentSerializer(serializers.ModelSerializer):
     employee_code = serializers.CharField(
         source="payroll_record.employee.employee_code",
