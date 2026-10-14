@@ -1,0 +1,53 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: hrms_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    ports:
+      - "3307:3306"
+    volumes:
+      - hrms_mysql_data:/var/lib/mysql
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - mysqladmin ping -h localhost -uroot -p"$${MYSQL_ROOT_PASSWORD}" --silent
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build:
+      context: ./backend
+    container_name: hrms_backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8002:8000"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: hrms_frontend
+    restart: unless-stopped
+    ports:
+      - "5174:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+
+volumes:
+  hrms_mysql_data:

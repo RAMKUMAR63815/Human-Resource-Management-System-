@@ -1,0 +1,3 @@
+Employee Code,Employee Name,Department,Leave Type,Start Date,End Date,Status,Reason,Reviewed By
+HRMS-RAM-003,ram kumar,Software development,SICK,2026-10-16,2026-10-16,APPROVED,Not feeling well,host
+HRMS-RAM-003,ram kumar,Software development,CASUAL,2026-10-16,2026-10-19,REJECTED,Went to go hospital,host

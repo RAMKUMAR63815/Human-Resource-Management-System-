@@ -1,0 +1,692 @@
+
+{
+  "info": {
+    "_postman_id": "f1d6e3a8-73d4-4b21-9d65-hrms20261015",
+    "name": "HRMS - Full API Testing Collection",
+    "description": "Human Resource Management System API tests for Django REST Framework, MySQL, JWT authentication, employees, attendance, leaves, payroll, CSV reports and PDF salary slips. Run login first. Verify attendance and employee request schemas against the current backend source.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8002"
+    },
+    {
+      "key": "username",
+      "value": "YOUR_HR_USERNAME"
+    },
+    {
+      "key": "password",
+      "value": "YOUR_HR_PASSWORD"
+    },
+    {
+      "key": "access_token",
+      "value": ""
+    },
+    {
+      "key": "refresh_token",
+      "value": ""
+    },
+    {
+      "key": "employee_id",
+      "value": "1"
+    },
+    {
+      "key": "leave_id",
+      "value": "1"
+    },
+    {
+      "key": "payroll_id",
+      "value": "1"
+    },
+    {
+      "key": "payroll_year",
+      "value": "2026"
+    },
+    {
+      "key": "payroll_month",
+      "value": "9"
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{access_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "01 - Authentication",
+      "item": [
+        {
+          "name": "Login - Obtain JWT Tokens",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login returns a successful response', function () { pm.expect(pm.response.code).to.be.oneOf([200, 201]); });",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  const body = pm.response.json();",
+                  "  if (body.access) pm.collectionVariables.set('access_token', body.access);",
+                  "  if (body.refresh) pm.collectionVariables.set('refresh_token', body.refresh);",
+                  "  pm.test('Access token received', function () { pm.expect(body.access).to.be.a('string').and.not.empty; });",
+                  "  pm.test('Refresh token received', function () { pm.expect(body.refresh).to.be.a('string').and.not.empty; });",
+                  "} else { console.log('Login failed. Check credentials and backend logs.'); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "noauth"
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/accounts/login/",
+            "description": "Replace the collection variables username and password with valid HR/Admin credentials."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Current User Profile",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Profile request succeeds', function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('Profile has a username', function () { pm.expect(body.username).to.be.a('string'); });",
+                  "  console.log('Current user:', body.username, 'Role:', body.role);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/accounts/me/",
+            "description": "Expected: current authenticated user's profile, including username and role if exposed by the serializer."
+          },
+          "response": []
+        },
+        {
+          "name": "Refresh JWT Access Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Refresh endpoint returns success', function () { pm.expect(pm.response.code).to.be.oneOf([200, 201]); });",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  const body = pm.response.json();",
+                  "  if (body.access) pm.collectionVariables.set('access_token', body.access);",
+                  "  pm.test('New access token received', function () { pm.expect(body.access).to.be.a('string').and.not.empty; });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "noauth"
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh\": \"{{refresh_token}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/accounts/token/refresh/"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "02 - Employee Management",
+      "item": [
+        {
+          "name": "List Employees",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Employee list request succeeds', function () { pm.response.to.have.status(200); });",
+                  "pm.test('Response is JSON', function () { pm.expect(pm.response.headers.get('Content-Type') || '').to.include('application/json'); });",
+                  "if (pm.response.code === 200) console.log('Employee response:', pm.response.json());"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/employees/",
+            "description": "Expected: employee records or a paginated employee response, depending on the configured view."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Employee",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Create employee returned a success status', function () { pm.expect(pm.response.code).to.be.oneOf([200, 201]); });",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  const body = pm.response.json();",
+                  "  if (body.id) pm.collectionVariables.set('employee_id', String(body.id));",
+                  "  console.log('Created employee:', body);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"employee_code\": \"HRMS-TEST-001\",\n  \"department\": \"Software development\",\n  \"designation\": \"Developer\",\n  \"joining_date\": \"2026-01-15\",\n  \"salary\": \"50000.00\",\n  \"phone\": \"9000000001\",\n  \"address\": \"Test Address\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/employees/",
+            "description": "Example payload only. Confirm required fields, employee creation support, and any associated user requirement in employees/serializers.py before running. This request can create a real database record."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Employee",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Employee update returned a success status', function () { pm.expect(pm.response.code).to.be.oneOf([200, 202, 204]); });",
+                  "if (pm.response.code === 200) console.log('Updated employee:', pm.response.json());"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"department\": \"Software development\",\n  \"designation\": \"Developer\",\n  \"salary\": \"50000.00\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/employees/{{employee_id}}/",
+            "description": "Updates the selected employee. Use a test employee ID and verify allowed fields in the employee serializer."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Employee Detail",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Employee detail request succeeds', function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) console.log('Employee detail:', pm.response.json());"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/employees/{{employee_id}}/",
+            "description": "Confirm the detail route exists in employees/urls.py; some projects expose only the collection route."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "03 - Attendance Management",
+      "item": [
+        {
+          "name": "List Attendance Records",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Attendance endpoint returned a response', function () { pm.expect(pm.response.code).to.be.oneOf([200, 401, 403, 404, 405]); });",
+                  "if (pm.response.code === 200) console.log('Attendance response:', pm.response.json());",
+                  "if ([404, 405].includes(pm.response.code)) console.warn('Confirm the exact attendance route in attendance/urls.py.');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/attendance/",
+            "description": "Candidate collection route. Confirm the exact route in attendance/urls.py before treating this as a successful test."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "04 - Leave Management",
+      "item": [
+        {
+          "name": "Get My Leave Requests",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('My leave request list succeeds', function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) console.log('My leave requests:', pm.response.json());"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/leaves/my/"
+          },
+          "response": []
+        },
+        {
+          "name": "Submit Leave Request",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Leave creation returned a success status', function () { pm.expect(pm.response.code).to.be.oneOf([200, 201]); });",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  const body = pm.response.json();",
+                  "  if (body.id) pm.collectionVariables.set('leave_id', String(body.id));",
+                  "  console.log('Created leave request:', body);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"leave_type\": \"CASUAL\",\n  \"start_date\": \"2026-10-20\",\n  \"end_date\": \"2026-10-20\",\n  \"reason\": \"Personal work\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/leaves/my/",
+            "description": "Uses the leave fields described by the project. Choose future dates and a valid leave type. A request may fail if the serializer uses different field names or the user lacks an employee profile."
+          },
+          "response": []
+        },
+        {
+          "name": "List All Leave Requests - HR",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HR leave list returns success or an authorization response', function () { pm.expect(pm.response.code).to.be.oneOf([200, 401, 403]); });",
+                  "if (pm.response.code === 200) console.log('All leave requests:', pm.response.json());"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/leaves/all/"
+          },
+          "response": []
+        },
+        {
+          "name": "Approve Leave Request - HR",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Review returns a success or validation response', function () { pm.expect(pm.response.code).to.be.oneOf([200, 201, 400, 403, 404, 409]); });",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) console.log('Leave review result:', pm.response.json());"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"APPROVED\",\n  \"comment\": \"Approved after review\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/leaves/{{leave_id}}/review/",
+            "description": "Use only for a pending test leave request and an authorized HR/Admin account. Paid leave approval also depends on leave balance."
+          },
+          "response": []
+        },
+        {
+          "name": "Export Leave Report CSV",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('CSV report endpoint returns success', function () { pm.response.to.have.status(200); });",
+                  "pm.test('Response has content type', function () { pm.expect(pm.response.headers.get('Content-Type') || '').to.not.be.empty; });",
+                  "console.log('CSV content type:', pm.response.headers.get('Content-Type'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/leaves/report/csv/",
+            "description": "Expected: downloadable CSV response for an authorized HR/Admin user."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "05 - Payroll Management",
+      "item": [
+        {
+          "name": "List Payroll Records - HR",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Payroll list returns success or an authorization response', function () { pm.expect(pm.response.code).to.be.oneOf([200, 401, 403]); });",
+                  "if (pm.response.code === 200) console.log('Payroll records:', pm.response.json());"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/payroll/"
+          },
+          "response": []
+        },
+        {
+          "name": "Generate Payroll",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Payroll generation returns a response', function () { pm.expect(pm.response.code).to.be.oneOf([200, 201, 400, 403, 404, 409]); });",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  const body = pm.response.json();",
+                  "  if (body.id) pm.collectionVariables.set('payroll_id', String(body.id));",
+                  "  if (body.payroll && body.payroll.id) pm.collectionVariables.set('payroll_id', String(body.payroll.id));",
+                  "  console.log('Generated payroll:', body);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"employee_id\": {{employee_id}},\n  \"year\": {{payroll_year}},\n  \"month\": {{payroll_month}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/payroll/generate/",
+            "description": "Use an employee ID that exists. Only completed months are accepted. Existing Locked/Paid records are not recalculated. Verify the employee joining date and attendance before running."
+          },
+          "response": []
+        },
+        {
+          "name": "Lock Payroll",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Lock endpoint returns a response', function () { pm.expect(pm.response.code).to.be.oneOf([200, 201, 400, 403, 404, 409]); });",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) console.log('Lock result:', pm.response.json());"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/payroll/{{payroll_id}}/lock/",
+            "description": "Use only on a valid Draft payroll record. This changes payroll state and should be run only after reviewing the amount."
+          },
+          "response": []
+        },
+        {
+          "name": "Simulate Salary Payment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Payment simulation returns a response', function () { pm.expect(pm.response.code).to.be.oneOf([200, 201, 400, 403, 404, 409]); });",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) console.log('Simulated payment result:', pm.response.json());"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/payroll/{{payroll_id}}/pay/",
+            "description": "This is a state-changing simulation, not a real bank transfer. Run only for an approved test payroll already in Locked status."
+          },
+          "response": []
+        },
+        {
+          "name": "My Payroll History",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('My payroll history request succeeds', function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) console.log('My payroll history:', pm.response.json());"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/payroll/my/"
+          },
+          "response": []
+        },
+        {
+          "name": "Download Salary Slip PDF",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Salary slip returns a successful response', function () { pm.response.to.have.status(200); });",
+                  "pm.test('Response is a PDF or binary document', function () { pm.expect(pm.response.headers.get('Content-Type') || '').to.include('application/pdf'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/payroll/{{payroll_id}}/salary-slip/",
+            "description": "Requires an eligible Locked or Paid payroll record and permission to access that employee's salary slip. Use Send and save the response to a PDF file if needed."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "06 - Security Checks",
+      "item": [
+        {
+          "name": "Protected Profile Without Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Unauthenticated profile request is rejected', function () { pm.expect(pm.response.code).to.be.oneOf([401, 403]); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "noauth"
+            },
+            "header": [],
+            "url": "{{baseUrl}}/api/accounts/me/",
+            "description": "Expected: 401 or 403 for an unauthenticated request, depending on configured DRF authentication and permission behavior."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
