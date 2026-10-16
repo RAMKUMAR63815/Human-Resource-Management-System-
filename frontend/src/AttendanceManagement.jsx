@@ -71,6 +71,11 @@ export default function AttendanceManagement({
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
+  // Monthly attendance summary state.
+  const [summary, setSummary] = useState(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryError, setSummaryError] = useState("");
+
   // Blank date means all dates are included.
   const [filterDate, setFilterDate] = useState("");
   const [department, setDepartment] = useState("");
@@ -100,7 +105,6 @@ export default function AttendanceManagement({
         );
       }
 
-      // Use path here; endpoint is defined separately in each caller.
       const response = await fetch(`${API_BASE}${path}`, {
         ...options,
         headers: {
@@ -199,10 +203,43 @@ export default function AttendanceManagement({
     year,
   ]);
 
-  // Reload when the selected filters or authentication change.
+  // Loads the logged-in employee's holiday-aware monthly summary.
+  const loadSummary = useCallback(async () => {
+    if (canViewAll) return;
+
+    setSummaryLoading(true);
+    setSummaryError("");
+
+    try {
+      const params = new URLSearchParams({
+        month: String(month),
+        year: String(year),
+      });
+
+      const data = await apiRequest(
+        `/attendance/my/summary/?${params.toString()}`
+      );
+
+      setSummary(data);
+    } catch (err) {
+      setSummary(null);
+      setSummaryError(
+        err.message || "Could not load attendance summary."
+      );
+    } finally {
+      setSummaryLoading(false);
+    }
+  }, [apiRequest, canViewAll, month, year]);
+
+  // Reload attendance when the selected filters or authentication change.
   useEffect(() => {
     loadAttendance();
   }, [loadAttendance]);
+
+  // Reload the summary when the month/year or authentication changes.
+  useEffect(() => {
+    loadSummary();
+  }, [loadSummary]);
 
   // Records an employee's check-in or check-out.
   async function handleAttendanceAction(action) {
@@ -222,7 +259,11 @@ export default function AttendanceManagement({
           : "Check-out recorded successfully."
       );
 
-      await loadAttendance();
+      // Refresh both the attendance records and summary.
+      await Promise.all([
+        loadAttendance(),
+        loadSummary(),
+      ]);
     } catch (err) {
       setError(err.message || "Attendance action failed.");
     } finally {
@@ -345,6 +386,34 @@ export default function AttendanceManagement({
     (record) =>
       record.date === todayString && !record.check_out
   );
+
+  // Summary cards display values returned by the backend.
+  const summaryCards = [
+    {
+      label: "Expected Workdays",
+      value: summary?.expected_workdays_so_far,
+      color: "text-blue-700",
+      background: "bg-blue-50",
+    },
+    {
+      label: "Attended Workdays",
+      value: summary?.attended_workdays,
+      color: "text-green-700",
+      background: "bg-green-50",
+    },
+    {
+      label: "Missing Workdays",
+      value: summary?.missing_workdays,
+      color: "text-amber-700",
+      background: "bg-amber-50",
+    },
+    {
+      label: "Applicable Holidays",
+      value: summary?.applicable_holidays_so_far,
+      color: "text-purple-700",
+      background: "bg-purple-50",
+    },
+  ];
 
   return (
     <main className="min-h-screen bg-slate-100">
@@ -473,6 +542,123 @@ export default function AttendanceManagement({
           </section>
         )}
 
+        {/* Monthly summary for employees. Holidays are excluded by the backend. */}
+        {!canViewAll && (
+          <section className="mb-6">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">
+                  Monthly Attendance Summary
+                </h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  Weekdays and applicable holidays are considered.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={loadSummary}
+                disabled={summaryLoading}
+                className="flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+              >
+                <RefreshCw
+                  size={16}
+                  className={summaryLoading ? "animate-spin" : ""}
+                />
+                Refresh summary
+              </button>
+            </div>
+
+            {summaryError && (
+              <div
+                role="alert"
+                className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+              >
+                <p>{summaryError}</p>
+                <button
+                  type="button"
+                  onClick={loadSummary}
+                  className="mt-2 font-semibold underline"
+                >
+                  Try again
+                </button>
+              </div>
+            )}
+
+            {summaryLoading && !summary ? (
+              <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
+                <RefreshCw
+                  size={20}
+                  className="mx-auto mb-2 animate-spin"
+                />
+                Loading monthly summary...
+              </div>
+            ) : summary ? (
+              <>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  {summaryCards.map((item) => (
+                    <article
+                      key={item.label}
+                      className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+                    >
+                      <div
+                        className={`mb-3 inline-flex rounded-lg p-2 ${item.background} ${item.color}`}
+                      >
+                        <CalendarCheck size={20} />
+                      </div>
+
+                      <p className="text-sm text-slate-500">
+                        {item.label}
+                      </p>
+
+                      <p className={`mt-1 text-3xl font-bold ${item.color}`}>
+                        {item.value ?? 0}
+                      </p>
+                    </article>
+                  ))}
+                </div>
+
+                {Array.isArray(summary.holiday_dates) &&
+                  summary.holiday_dates.length > 0 && (
+                    <div className="mt-4 rounded-xl border border-purple-100 bg-purple-50 p-4">
+                      <h4 className="font-semibold text-purple-900">
+                        Applicable Holiday Dates
+                      </h4>
+
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {summary.holiday_dates.map((holidayDate) => (
+                          <span
+                            key={holidayDate}
+                            className="rounded-full bg-white px-3 py-1.5 text-sm text-purple-800"
+                          >
+                            {holidayDate}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                {Array.isArray(summary.holiday_dates) &&
+                  summary.holiday_dates.length === 0 && (
+                    <p className="mt-3 text-sm text-slate-500">
+                      No applicable holidays found for this period.
+                    </p>
+                  )}
+
+                <p className="mt-3 text-xs text-slate-500">
+                  Missing workdays are expected working days without a
+                  completed check-out. This is an attendance indicator
+                  and does not automatically determine Leave Without Pay.
+                </p>
+              </>
+            ) : !summaryError ? (
+              <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
+                No summary data available.
+              </div>
+            ) : null}
+          </section>
+        )}
+
         <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 p-5">
             <div>
@@ -488,13 +674,20 @@ export default function AttendanceManagement({
             </div>
 
             <button
-              onClick={loadAttendance}
-              disabled={loading}
+              onClick={() =>
+                Promise.all([
+                  loadAttendance(),
+                  loadSummary(),
+                ])
+              }
+              disabled={loading || summaryLoading}
               className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
             >
               <RefreshCw
                 size={16}
-                className={loading ? "animate-spin" : ""}
+                className={
+                  loading || summaryLoading ? "animate-spin" : ""
+                }
               />
               Refresh
             </button>
@@ -520,10 +713,6 @@ export default function AttendanceManagement({
                     }
                     className="rounded-lg border border-slate-300 bg-white px-3 py-2"
                   />
-
-                  {/* <p className="mt-1 text-xs text-slate-500">
-                    Leave blank to show all dates.
-                  </p> */}
                 </div>
 
                 <div>

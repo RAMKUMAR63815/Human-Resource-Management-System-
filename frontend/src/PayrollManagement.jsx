@@ -1,6 +1,5 @@
-// C:\HRMS-project\frontend\src\PayrollManagement.jsx
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   RefreshCw,
@@ -9,6 +8,9 @@ import {
   LockKeyhole,
   CircleDollarSign,
   FileText,
+  Search,
+  AlertCircle,
+  CheckCircle2,
 } from "lucide-react";
 
 const API_BASE = (
@@ -21,7 +23,7 @@ function getErrorMessage(data, fallback) {
   if (data && typeof data === "object") {
     const messages = Object.entries(data).map(([field, value]) => {
       const message = Array.isArray(value)
-        ? value.join(" ")
+        ? value.map(String).join(" ")
         : typeof value === "string"
           ? value
           : JSON.stringify(value);
@@ -39,9 +41,9 @@ async function apiRequest(path, accessToken, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
-      Authorization: `Bearer ${accessToken}`,
       ...(options.body ? { "Content-Type": "application/json" } : {}),
       ...options.headers,
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
     },
   });
 
@@ -69,17 +71,22 @@ function getRows(data) {
 }
 
 function money(value) {
-  const amount = Number(value || 0);
+  const amount = Number(value ?? 0);
 
   return new Intl.NumberFormat("en-IN", {
     style: "currency",
     currency: "INR",
     maximumFractionDigits: 2,
-  }).format(amount);
+  }).format(Number.isFinite(amount) ? amount : 0);
 }
 
 function getMonthName(month) {
-  return new Date(2000, Number(month) - 1, 1).toLocaleString("en-IN", {
+  const value = Number(month);
+  if (!Number.isInteger(value) || value < 1 || value > 12) {
+    return "Unknown month";
+  }
+
+  return new Date(2000, value - 1, 1).toLocaleString("en-IN", {
     month: "long",
   });
 }
@@ -102,6 +109,18 @@ function PayrollStatus({ status }) {
   );
 }
 
+function SummaryCard({ label, value, icon: Icon }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm text-slate-500">{label}</p>
+        <Icon size={20} className="text-blue-700" />
+      </div>
+      <p className="mt-3 text-3xl font-bold text-slate-900">{value}</p>
+    </div>
+  );
+}
+
 export default function PayrollManagement({
   user,
   role,
@@ -113,6 +132,7 @@ export default function PayrollManagement({
     role ||
     user?.role ||
     user?.profile?.role ||
+    user?.hrms_profile?.role ||
     (user?.is_superuser ? "ADMIN" : "EMPLOYEE")
   )
     .toString()
@@ -120,10 +140,12 @@ export default function PayrollManagement({
 
   const isAdminHR = ["ADMIN", "HR", "SUPERUSER"].includes(currentRole);
 
-  // Default to the previous month because the backend rejects
-  // payroll generation for the current or a future month.
   const today = new Date();
-  const previousMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  const previousMonth = new Date(
+    today.getFullYear(),
+    today.getMonth() - 1,
+    1,
+  );
 
   const [year, setYear] = useState(String(previousMonth.getFullYear()));
   const [month, setMonth] = useState(String(previousMonth.getMonth() + 1));
@@ -133,10 +155,12 @@ export default function PayrollManagement({
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [workingId, setWorkingId] = useState(null);
+  const [downloadingId, setDownloadingId] = useState(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
+  const [periodFilter, setPeriodFilter] = useState("ALL");
 
   const loadRecords = useCallback(async () => {
     setLoading(true);
@@ -163,14 +187,20 @@ export default function PayrollManagement({
       );
 
       setEmployees(activeEmployees);
+
       setEmployeeId((current) => {
-        if (current && activeEmployees.some(
-          (employee) => String(employee.id) === String(current),
-        )) {
+        if (
+          current &&
+          activeEmployees.some(
+            (employee) => String(employee.id) === String(current),
+          )
+        ) {
           return current;
         }
 
-        return activeEmployees.length ? String(activeEmployees[0].id) : "";
+        return activeEmployees.length
+          ? String(activeEmployees[0].id)
+          : "";
       });
     } catch (err) {
       setError(
@@ -184,30 +214,63 @@ export default function PayrollManagement({
     loadEmployees();
   }, [loadRecords, loadEmployees]);
 
+  async function refreshAll() {
+    setSuccess("");
+    await Promise.all([loadRecords(), loadEmployees()]);
+  }
+
   async function generatePayroll(event) {
     event.preventDefault();
+    setError("");
+    setSuccess("");
+
+    if (!accessToken) {
+      setError("Your session is missing. Please log in again.");
+      return;
+    }
 
     if (!employeeId) {
       setError("Select an employee before generating payroll.");
       return;
     }
 
+    const selectedYear = Number(year);
+    const selectedMonth = Number(month);
+
+    if (
+      !Number.isInteger(selectedYear) ||
+      selectedYear < 1 ||
+      !Number.isInteger(selectedMonth) ||
+      selectedMonth < 1 ||
+      selectedMonth > 12
+    ) {
+      setError("Enter a valid payroll year and month.");
+      return;
+    }
+
+    if (
+      selectedYear > today.getFullYear() ||
+      (selectedYear === today.getFullYear() &&
+        selectedMonth >= today.getMonth() + 1)
+    ) {
+      setError("Select a completed month for payroll generation.");
+      return;
+    }
+
     setGenerating(true);
-    setError("");
-    setSuccess("");
 
     try {
       await apiRequest("/payroll/generate/", accessToken, {
         method: "POST",
         body: JSON.stringify({
           employee_id: Number(employeeId),
-          year: Number(year),
-          month: Number(month),
+          year: selectedYear,
+          month: selectedMonth,
         }),
       });
 
       setSuccess(
-        `Payroll generated or updated for ${getMonthName(month)} ${year}.`,
+        `Payroll generated or recalculated for ${getMonthName(selectedMonth)} ${selectedYear}.`,
       );
 
       await loadRecords();
@@ -219,23 +282,25 @@ export default function PayrollManagement({
   }
 
   async function changePayrollStatus(record, action) {
-    const actionDetails = {
+    const actions = {
       lock: {
-        prompt: "Lock this draft payroll? It can no longer be recalculated.",
+        prompt:
+          "Lock this draft payroll? A locked record cannot be recalculated.",
         path: `/payroll/${record.id}/lock/`,
         successMessage: "Payroll locked successfully.",
       },
       pay: {
         prompt:
-          "Record a SIMULATED salary payment? This does not transfer real money.",
+          "Record a simulated salary payment? This will not transfer real money.",
         path: `/payroll/${record.id}/pay/`,
         successMessage:
           "Simulated salary payment recorded. No real bank transfer occurred.",
       },
     };
 
-    const details = actionDetails[action];
-    if (!details) return;
+    const details = actions[action];
+    if (!details || workingId !== null) return;
+
     if (!window.confirm(details.prompt)) return;
 
     setWorkingId(record.id);
@@ -260,14 +325,15 @@ export default function PayrollManagement({
   async function downloadSalarySlip(record) {
     setError("");
     setSuccess("");
+    setDownloadingId(record.id);
 
     try {
       const response = await fetch(
         `${API_BASE}/payroll/${record.id}/salary-slip/`,
         {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
+          headers: accessToken
+            ? { Authorization: `Bearer ${accessToken}` }
+            : {},
         },
       );
 
@@ -283,41 +349,77 @@ export default function PayrollManagement({
       const link = document.createElement("a");
 
       link.href = url;
-      link.download = `salary-slip-${record.employee_code || record.id}-${record.year}-${String(record.month).padStart(2, "0")}.pdf`;
+      link.download =
+        `salary-slip-${record.employee_code || record.id}-` +
+        `${record.year}-${String(record.month).padStart(2, "0")}.pdf`;
+
       document.body.appendChild(link);
       link.click();
       link.remove();
-      URL.revokeObjectURL(url);
 
-      setSuccess("Salary slip downloaded.");
+      // Revoke after the browser has had an opportunity to start the download.
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+      setSuccess("Salary slip download started.");
     } catch (err) {
       setError(err.message || "Unable to download the salary slip.");
+    } finally {
+      setDownloadingId(null);
     }
   }
 
-  const visibleRecords = records.filter((record) => {
+  const visibleRecords = useMemo(() => {
     const query = search.trim().toLowerCase();
 
-    const matchesSearch =
-      !query ||
-      String(record.employee_name || "").toLowerCase().includes(query) ||
-      String(record.employee_code || "").toLowerCase().includes(query);
+    return records.filter((record) => {
+      const matchesSearch =
+        !query ||
+        String(record.employee_name || "")
+          .toLowerCase()
+          .includes(query) ||
+        String(record.employee_code || "")
+          .toLowerCase()
+          .includes(query);
 
-    const matchesStatus =
-      statusFilter === "ALL" || record.status === statusFilter;
+      const matchesStatus =
+        statusFilter === "ALL" || record.status === statusFilter;
 
-    return matchesSearch && matchesStatus;
-  });
+      const matchesPeriod =
+        periodFilter === "ALL" ||
+        `${record.year}-${String(record.month).padStart(2, "0")}` ===
+          periodFilter;
 
-  const summary = {
-    count: visibleRecords.length,
-    draft: visibleRecords.filter((record) => record.status === "DRAFT").length,
-    locked: visibleRecords.filter((record) => record.status === "LOCKED").length,
-    paid: visibleRecords.filter((record) => record.status === "PAID").length,
-  };
+      return matchesSearch && matchesStatus && matchesPeriod;
+    });
+  }, [records, search, statusFilter, periodFilter]);
+
+  const periods = useMemo(() => {
+    const unique = new Set(
+      records.map(
+        (record) =>
+          `${record.year}-${String(record.month).padStart(2, "0")}`,
+      ),
+    );
+
+    return [...unique].sort((a, b) => b.localeCompare(a));
+  }, [records]);
+
+  const summary = useMemo(
+    () => ({
+      count: visibleRecords.length,
+      draft: visibleRecords.filter((r) => r.status === "DRAFT").length,
+      locked: visibleRecords.filter((r) => r.status === "LOCKED").length,
+      paid: visibleRecords.filter((r) => r.status === "PAID").length,
+      net: visibleRecords.reduce(
+        (sum, record) => sum + Number(record.net_salary || 0),
+        0,
+      ),
+    }),
+    [visibleRecords],
+  );
 
   return (
-    <main className="min-h-screen bg-slate-100">
+    <main className="min-h-screen bg-slate-100 text-slate-900">
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-5 py-4">
           <div className="flex items-center gap-3">
@@ -331,11 +433,9 @@ export default function PayrollManagement({
             </button>
 
             <div>
-              <h1 className="text-xl font-bold text-slate-900">
-                Payroll Management
-              </h1>
+              <h1 className="text-xl font-bold">Payroll Management</h1>
               <p className="text-sm text-slate-500">
-                Payroll records and salary slips
+                Salary calculation, payroll approvals, and salary slips
               </p>
             </div>
           </div>
@@ -354,18 +454,20 @@ export default function PayrollManagement({
         {error && (
           <div
             role="alert"
-            className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"
+            className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"
           >
-            {error}
+            <AlertCircle size={18} className="mt-0.5 shrink-0" />
+            <span>{error}</span>
           </div>
         )}
 
         {success && (
           <div
             role="status"
-            className="rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-800"
+            className="flex items-start gap-2 rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-800"
           >
-            {success}
+            <CheckCircle2 size={18} className="mt-0.5 shrink-0" />
+            <span>{success}</span>
           </div>
         )}
 
@@ -376,11 +478,9 @@ export default function PayrollManagement({
                 <Wallet size={23} />
               </div>
               <div>
-                <h2 className="text-lg font-bold text-slate-900">
-                  Generate payroll
-                </h2>
+                <h2 className="text-lg font-bold">Generate payroll</h2>
                 <p className="text-sm text-slate-500">
-                  Choose an employee and a completed month.
+                  Generate or recalculate payroll for a completed month.
                 </p>
               </div>
             </div>
@@ -401,7 +501,7 @@ export default function PayrollManagement({
                   value={employeeId}
                   onChange={(event) => setEmployeeId(event.target.value)}
                   required
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5"
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5"
                 >
                   <option value="">Select employee</option>
                   {employees.map((employee) => (
@@ -415,10 +515,11 @@ export default function PayrollManagement({
                     </option>
                   ))}
                 </select>
+
                 {employees.length === 0 && (
                   <p className="mt-1 text-xs text-amber-700">
-                    No employees were returned. Check the employee API and
-                    active employee records.
+                    No employees found. Check your employee API and active
+                    employee records.
                   </p>
                 )}
               </div>
@@ -454,22 +555,21 @@ export default function PayrollManagement({
                   value={month}
                   onChange={(event) => setMonth(event.target.value)}
                   required
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5"
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5"
                 >
                   {Array.from({ length: 12 }, (_, index) => index + 1).map(
-                    (value) => (
-                      <option
-                        key={value}
-                        value={value}
-                        disabled={
-                          Number(year) > today.getFullYear() ||
-                          (Number(year) === today.getFullYear() &&
-                            value >= today.getMonth() + 1)
-                        }
-                      >
-                        {getMonthName(value)}
-                      </option>
-                    ),
+                    (value) => {
+                      const future =
+                        Number(year) > today.getFullYear() ||
+                        (Number(year) === today.getFullYear() &&
+                          value >= today.getMonth() + 1);
+
+                      return (
+                        <option key={value} value={value} disabled={future}>
+                          {getMonthName(value)}
+                        </option>
+                      );
+                    },
                   )}
                 </select>
               </div>
@@ -486,59 +586,113 @@ export default function PayrollManagement({
             </form>
 
             <p className="mt-4 text-xs leading-5 text-slate-500">
-              Payroll can only be generated for a completed month. The backend
-              calculates loss-of-pay deductions using the attendance and leave
-              records it already stores.
+              The backend calculates salary, configured holiday exclusions,
+              attendance, approved leave, loss of pay, and active salary
+              components. Only draft payroll should be recalculated.
             </p>
           </section>
         )}
 
         <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {[
-            {
-              label: "Records shown",
-              value: summary.count,
-              icon: FileText,
-            },
-            {
-              label: "Draft",
-              value: summary.draft,
-              icon: Wallet,
-            },
-            {
-              label: "Locked",
-              value: summary.locked,
-              icon: LockKeyhole,
-            },
-            {
-              label: "Paid / simulated",
-              value: summary.paid,
-              icon: CircleDollarSign,
-            },
-          ].map((item) => {
-            const Icon = item.icon;
+          <SummaryCard
+            label="Records shown"
+            value={summary.count}
+            icon={FileText}
+          />
+          <SummaryCard label="Draft" value={summary.draft} icon={Wallet} />
+          <SummaryCard
+            label="Locked"
+            value={summary.locked}
+            icon={LockKeyhole}
+          />
+          <SummaryCard
+            label="Paid / simulated"
+            value={summary.paid}
+            icon={CircleDollarSign}
+          />
+        </section>
 
-            return (
-              <div
-                key={item.label}
-                className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <p className="text-sm text-slate-500">Net salary total</p>
+              <p className="mt-1 text-xl font-bold">{money(summary.net)}</p>
+              <p className="text-xs text-slate-500">
+                Sum of records currently shown
+              </p>
+            </div>
+
+            <div>
+              <label
+                htmlFor="payroll_search"
+                className="mb-1.5 block text-sm font-semibold text-slate-700"
               >
-                <div className="flex items-center justify-between">
-                  <p className="text-sm text-slate-500">{item.label}</p>
-                  <Icon size={20} className="text-blue-700" />
-                </div>
-                <p className="mt-3 text-3xl font-bold text-slate-900">
-                  {item.value}
-                </p>
+                Search employee
+              </label>
+              <div className="flex items-center gap-2 rounded-lg border border-slate-300 px-3">
+                <Search size={16} className="text-slate-400" />
+                <input
+                  id="payroll_search"
+                  type="search"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Name or employee code"
+                  className="min-w-0 flex-1 py-2.5 text-sm outline-none"
+                />
               </div>
-            );
-          })}
+            </div>
+
+            <div>
+              <label
+                htmlFor="payroll_status"
+                className="mb-1.5 block text-sm font-semibold text-slate-700"
+              >
+                Filter by status
+              </label>
+              <select
+                id="payroll_status"
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(event.target.value)}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm"
+              >
+                <option value="ALL">All statuses</option>
+                <option value="DRAFT">Draft</option>
+                <option value="LOCKED">Locked</option>
+                <option value="PAID">Paid</option>
+              </select>
+            </div>
+
+            <div>
+              <label
+                htmlFor="payroll_period"
+                className="mb-1.5 block text-sm font-semibold text-slate-700"
+              >
+                Filter by period
+              </label>
+              <select
+                id="payroll_period"
+                value={periodFilter}
+                onChange={(event) => setPeriodFilter(event.target.value)}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm"
+              >
+                <option value="ALL">All periods</option>
+                {periods.map((period) => {
+                  const [periodYear, periodMonth] = period.split("-");
+                  return (
+                    <option key={period} value={period}>
+                      {getMonthName(periodMonth)} {periodYear}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+          </div>
         </section>
 
         <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-5">
             <div>
-              <h2 className="text-lg font-bold text-slate-900">
+              <h2 className="text-lg font-bold">
                 {isAdminHR ? "Payroll records" : "My payroll history"}
               </h2>
               <p className="text-sm text-slate-500">
@@ -546,37 +700,15 @@ export default function PayrollManagement({
               </p>
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              <input
-                type="search"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search employee"
-                aria-label="Search payroll by employee"
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              />
-
-              <select
-                aria-label="Filter payroll by status"
-                value={statusFilter}
-                onChange={(event) => setStatusFilter(event.target.value)}
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              >
-                <option value="ALL">All statuses</option>
-                <option value="DRAFT">Draft</option>
-                <option value="LOCKED">Locked</option>
-                <option value="PAID">Paid</option>
-              </select>
-
-              <button
-                type="button"
-                onClick={loadRecords}
-                className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold hover:bg-slate-50"
-              >
-                <RefreshCw size={16} />
-                Refresh
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={refreshAll}
+              disabled={loading}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold hover:bg-slate-50 disabled:opacity-50"
+            >
+              <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
+              Refresh
+            </button>
           </div>
 
           {loading ? (
@@ -585,7 +717,7 @@ export default function PayrollManagement({
             </p>
           ) : visibleRecords.length === 0 ? (
             <p className="p-8 text-center text-slate-500">
-              No payroll records found.
+              No payroll records match your filters.
             </p>
           ) : (
             <div className="overflow-x-auto">
@@ -597,8 +729,10 @@ export default function PayrollManagement({
                     )}
                     <th className="px-4 py-3">Period</th>
                     <th className="px-4 py-3">Base salary</th>
+                    <th className="px-4 py-3">Gross salary</th>
                     <th className="px-4 py-3">LOP days</th>
                     <th className="px-4 py-3">LOP deduction</th>
+                    <th className="px-4 py-3">Total deductions</th>
                     <th className="px-4 py-3">Net salary</th>
                     <th className="px-4 py-3">Status</th>
                     <th className="px-4 py-3">Actions</th>
@@ -622,24 +756,25 @@ export default function PayrollManagement({
                         </td>
                       )}
 
-                      <td className="whitespace-nowrap px-4 py-4 font-medium text-slate-800">
+                      <td className="whitespace-nowrap px-4 py-4 font-medium">
                         {getMonthName(record.month)} {record.year}
                       </td>
-
                       <td className="whitespace-nowrap px-4 py-4">
                         {money(record.base_salary)}
                       </td>
-
-                      <td className="px-4 py-4">{record.lop_days}</td>
-
+                      <td className="whitespace-nowrap px-4 py-4">
+                        {money(record.gross_salary)}
+                      </td>
+                      <td className="px-4 py-4">{record.lop_days ?? 0}</td>
                       <td className="whitespace-nowrap px-4 py-4 text-red-700">
                         {money(record.lop_deduction)}
                       </td>
-
-                      <td className="whitespace-nowrap px-4 py-4 font-bold text-slate-900">
+                      <td className="whitespace-nowrap px-4 py-4 text-red-700">
+                        {money(record.total_deductions)}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-4 font-bold">
                         {money(record.net_salary)}
                       </td>
-
                       <td className="px-4 py-4">
                         <PayrollStatus status={record.status} />
                       </td>
@@ -649,39 +784,46 @@ export default function PayrollManagement({
                           {isAdminHR && record.status === "DRAFT" && (
                             <button
                               type="button"
-                              disabled={workingId === record.id}
+                              disabled={workingId !== null}
                               onClick={() =>
                                 changePayrollStatus(record, "lock")
                               }
                               className="inline-flex items-center gap-1 rounded-lg bg-blue-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"
                             >
                               <LockKeyhole size={14} />
-                              Lock
+                              {workingId === record.id
+                                ? "Processing..."
+                                : "Lock"}
                             </button>
                           )}
 
                           {isAdminHR && record.status === "LOCKED" && (
                             <button
                               type="button"
-                              disabled={workingId === record.id}
+                              disabled={workingId !== null}
                               onClick={() =>
                                 changePayrollStatus(record, "pay")
                               }
                               className="inline-flex items-center gap-1 rounded-lg bg-green-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"
                             >
                               <CircleDollarSign size={14} />
-                              Simulate pay
+                              {workingId === record.id
+                                ? "Processing..."
+                                : "Simulate pay"}
                             </button>
                           )}
 
                           {["LOCKED", "PAID"].includes(record.status) && (
                             <button
                               type="button"
+                              disabled={downloadingId === record.id}
                               onClick={() => downloadSalarySlip(record)}
-                              className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                              className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                             >
                               <Download size={14} />
-                              Salary slip
+                              {downloadingId === record.id
+                                ? "Downloading..."
+                                : "Salary slip"}
                             </button>
                           )}
                         </div>
@@ -695,9 +837,9 @@ export default function PayrollManagement({
         </section>
 
         <p className="text-xs leading-5 text-slate-500">
-          Important: “Simulate pay” only records a simulated payment in this
-          HRMS application. It does not transfer money through a bank or
-          payment gateway.
+          Simulated payments only record a payment event in this application.
+          They do not transfer money through a bank or payment gateway.
+          Payroll totals are based on the values returned by the backend.
         </p>
       </div>
     </main>

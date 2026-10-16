@@ -1,0 +1,5 @@
+Employee Code,Employee Name,Department,Date,Shift,Check In,Check Out,Working Hours,Late Minutes,Early Checkout Minutes,Overtime Hours
+HRMS-RAM-003,ram kumar,Software development,2026-10-16,Unassigned,2026-10-16 03:09:54.303049+00:00,,0.00,0,0,0.00
+HRMS-RAM-003,ram kumar,Software development,2026-10-15,Unassigned,2026-10-15 07:25:49.126871+00:00,,0.00,0,0,0.00
+122,Selva ganesh,Software development,2026-10-14,Unassigned,2026-10-14 19:40:35.826801+00:00,2026-10-14 19:40:41.486412+00:00,0.00,0,0,0.00
+HRMS-RAM-003,ram kumar,Software development,2026-10-14,Unassigned,2026-10-14 19:44:18.856305+00:00,2026-10-14 19:44:27.030012+00:00,0.00,0,0,0.00

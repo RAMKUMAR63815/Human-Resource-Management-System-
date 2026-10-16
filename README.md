@@ -1,23 +1,24 @@
 # Human Resource Management System (HRMS)
 
-**A Full-Stack Web Application for Employee, Attendance, Leave, and Payroll Management**
+## A Full-Stack Web Application for Employee, Attendance, Leave, and Payroll Management
 
 ## 1. Project Overview
 
 The Human Resource Management System (HRMS) is a full-stack web application designed to simplify and organize common Human Resources operations within an organization.
 
-The system provides a centralized platform for managing employee information, maintaining attendance records, handling leave applications, calculating payroll, and generating salary slip documents.
+The system provides a centralized platform for managing employee information, maintaining attendance records, handling leave applications, calculating payroll, managing salary components and allowances, and generating salary slip documents.
 
 The application uses React for the user interface, Django REST Framework for backend APIs, MySQL for persistent data storage, and Docker Compose to run the application's services.
 
-The project also implements JWT-based authentication, role-based API permissions, payroll status management, simulated salary payment processing, CSV reporting, and PDF salary slip generation using ReportLab.
+The project also implements JWT-based authentication, role-based API permissions, payroll status management, recurring salary components, simulated salary payment processing, CSV reporting, and PDF salary slip generation using ReportLab.
 
 ### Project objectives
 
 - Centralize employee information in a structured database.
 - Provide an interactive and responsive HR management interface.
 - Manage attendance and employee leave requests.
-- Calculate payroll using employee salary, attendance, and approved leave information.
+- Calculate payroll using employee salary, attendance, approved leave, and applicable salary components.
+- Support salary components such as HRA, travel allowance, and monthly bonus where configured and approved.
 - Restrict sensitive HR operations through backend authentication and authorization.
 - Generate downloadable salary slips and leave reports.
 - Simplify development and application startup using Docker.
@@ -31,7 +32,7 @@ The project also implements JWT-based authentication, role-based API permissions
 - Authenticated user profile retrieval.
 - Token-based communication between the frontend and backend.
 - Backend permission checks for restricted HR operations.
-- Role-based access for authorized administrators and HR users.
+- Role-based access for authorized administrators, HR users, and employees according to the configured permissions.
 - Protection of employee and payroll information through authenticated endpoints.
 
 The frontend sends an access token in the HTTP Authorization header when making protected requests.
@@ -80,7 +81,7 @@ The Attendance Management module records and manages employee attendance informa
 - Use attendance records as inputs for payroll calculations.
 - Consider attendance records with checkout times in the current payroll implementation.
 
-Accurate attendance data is important because missing or incomplete records can affect the calculation of loss-of-pay days.
+Accurate attendance data is important because missing or incomplete records can affect the calculation of loss-of-pay (LOP) days.
 
 ### 2.4 Leave Management
 
@@ -127,10 +128,15 @@ The Payroll Management module calculates and tracks employee payroll for complet
 - Payroll year.
 - Payroll month.
 - Base salary.
+- Applicable salary earnings and allowances.
+- Applicable salary deductions.
+- Gross salary.
 - Loss-of-pay days.
 - Loss-of-pay deduction.
+- Total deductions.
 - Net salary.
 - Payroll status.
+- Salary component calculation snapshot.
 - Record creation and update timestamps.
 - User who generated the record.
 
@@ -140,17 +146,18 @@ The Payroll Management module calculates and tracks employee payroll for complet
 |---|---|
 | Draft | Payroll has been generated and can be reviewed. |
 | Locked | Payroll has been finalized against further draft recalculation. |
-| Paid | The payroll record has been marked paid after the payment simulation. |
+| Paid | Payroll has been marked paid after the payment simulation. |
 
 **Implemented functionality:**
 
 - Generate payroll for a selected employee and completed month.
 - Calculate loss-of-pay days using attendance and approved leave data.
 - Calculate salary deductions.
-- Calculate net salary.
+- Calculate gross salary and net salary using the configured payroll logic.
+- Include applicable salary components when configured and effective for the payroll period.
 - Save payroll records in MySQL.
 - Prevent duplicate employee-period records through a database uniqueness constraint.
-- Recalculate records only while they remain in Draft status.
+- Recalculate records only while they remain in Draft status and are eligible for recalculation.
 - Lock a Draft payroll record.
 - Simulate salary payment only for a Locked record.
 - Store simulated payment information and a unique payment reference.
@@ -161,7 +168,45 @@ The Payroll Management module calculates and tracks employee payroll for complet
 
 **Important:** The payment functionality is simulated. It does not transfer money to a bank account or connect to a real banking or payment gateway.
 
-### 2.6 Salary Slip PDF Generation
+### 2.6 Salary Components and Allowances
+
+The payroll module supports recurring monthly salary components through the `EmployeeSalaryComponent` model.
+
+Salary components allow the organization to configure additional earnings and deductions separately from an employee's base salary.
+
+**Examples of earning components:**
+
+- House Rent Allowance (HRA).
+- Travel Allowance.
+- Monthly Bonus.
+- Other approved recurring earnings.
+
+**Component information includes:**
+
+- Employee reference.
+- Component name.
+- Component type, such as EARNING or DEDUCTION.
+- Amount.
+- Active/inactive status.
+- Effective-from date.
+- Optional effective-to date.
+
+**Implemented functionality:**
+
+- Associate salary components with an employee.
+- Store component names, types, amounts, and effective dates.
+- Retrieve salary components for payroll administration.
+- Support component creation and detail-level updates through the configured salary component APIs.
+- Select components applicable to a payroll period according to their active status and effective dates.
+- Calculate applicable component amounts, including calendar-day proration for partial-month applicability where implemented.
+- Store a snapshot of the salary components used when calculating payroll.
+- Include applicable earning and deduction lines in the generated salary slip when those components exist in the saved payroll snapshot.
+
+**Important payroll rule:** Adding or updating an employee's salary components does not automatically rewrite an existing Locked or Paid payroll record. The saved payroll record and its component snapshot are used to preserve the historical payroll calculation.
+
+If a historical payroll record requires correction, it must be handled through an authorized payroll correction or revision process. A salary slip download should not silently recalculate an existing historical payroll record.
+
+### 2.7 Salary Slip PDF Generation
 
 The project uses **ReportLab** to generate PDF salary slips.
 
@@ -170,8 +215,12 @@ The salary slip feature can include:
 - Employee identification.
 - Payroll period.
 - Base salary.
+- Applicable earning components, such as HRA and allowances.
+- Applicable deduction components.
+- Gross salary.
 - Loss-of-pay days.
 - Loss-of-pay deduction.
+- Total deductions.
 - Net salary.
 - Simulated payment reference and status, when applicable.
 
@@ -179,13 +228,15 @@ Salary slips are generated by the backend and delivered through the salary slip 
 
 The backend restricts downloads to eligible payroll statuses and checks whether the requester is authorized to access the record.
 
-### 2.7 CSV Reporting
+The PDF uses the saved payroll record and its salary component snapshot. If a payroll record was generated before the relevant components were configured, the saved snapshot may not contain those components.
+
+### 2.8 CSV Reporting
 
 The Leave Management module provides a CSV report endpoint for authorized HR users.
 
 CSV files can be opened using spreadsheet software for further review, filtering, or reporting.
 
-### 2.8 Dashboard and Module Navigation
+### 2.9 Dashboard and Module Navigation
 
 The React dashboard integrates the main HRMS management modules.
 
@@ -193,7 +244,7 @@ The dashboard provides navigation to the available employee, attendance, leave, 
 
 Each module communicates with the backend API to read or update the relevant data, subject to the endpoint's authentication and permissions.
 
-### 2.9 Dockerized Application
+### 2.10 Dockerized Application
 
 Docker Compose runs the frontend, backend, and database as separate services.
 
@@ -206,15 +257,13 @@ Docker Compose runs the frontend, backend, and database as separate services.
 - Persistent MySQL data through configured Docker volumes.
 - Reduced need to install backend and frontend dependencies directly on the host computer.
 
-### 2.10 Database Backup
+### 2.11 Database Backup
 
 The project supports exporting the configured MySQL database to an SQL dump file.
 
 The dump can be used for database migration, backup, or project submission through an approved channel.
 
 The dump may include employee personal information, salaries, attendance, leave history, and payroll records, so it must be handled securely.
-
----
 
 ## 3. Technology Stack
 
@@ -234,8 +283,6 @@ The dump may include employee personal information, salaries, attendance, leave 
 | API testing | Postman or equivalent | API request and response testing |
 
 The frontend communicates with the backend through HTTP APIs. Django processes requests, applies validation and permissions, and interacts with MySQL.
-
----
 
 ## 4. System Architecture
 
@@ -261,8 +308,9 @@ The frontend communicates with the backend through HTTP APIs. Django processes r
 | Accounts and Authentication       |
 | Employee Management               |
 | Attendance Management             |
-| Leave Management and Validation   |
+| Leave Management and Validation  |
 | Payroll Calculation               |
+| Salary Components and Allowances  |
 | CSV and PDF Reporting             |
 +----------------+------------------+
                  |
@@ -274,6 +322,7 @@ The frontend communicates with the backend through HTTP APIs. Django processes r
 | Employee and User Data            |
 | Attendance and Leave Records      |
 | Payroll and Payment Records       |
+| Salary Component Records          |
 +-----------------------------------+
 
        Docker Compose Environment
@@ -290,8 +339,6 @@ The frontend communicates with the backend through HTTP APIs. Django processes r
 7. The frontend displays the result.
 
 For reporting operations, the backend can return generated CSV or PDF files instead of a normal JSON response.
-
----
 
 ## 5. Project Directory Structure
 
@@ -314,8 +361,11 @@ C:\HRMS-project
 |   |   |-- urls.py
 |   |
 |   |-- accounts
+|   |
 |   |-- employees
+|   |
 |   |-- attendance
+|   |
 |   |-- leaves
 |   |   |-- models.py
 |   |   |-- serializers.py
@@ -344,10 +394,10 @@ C:\HRMS-project
 - `employees`: employee records and salary information.
 - `attendance`: employee attendance data.
 - `leaves`: leave applications, reviews, balances, and CSV reporting.
-- `payroll`: payroll calculation, status transitions, simulated payments, and PDF salary slips.
+- `payroll`: payroll calculation, salary components, status transitions, simulated payments, and PDF salary slips.
 - `config`: Django settings and application URL routing.
 
----
+The structure above is representative. Some frontend components, configuration files, or additional backend files may have different names in the actual repository.
 
 ## 6. System Requirements
 
@@ -359,8 +409,6 @@ C:\HRMS-project
 - Git for version control and submission.
 
 The containerized workflow runs Python, Django, and frontend dependencies inside Docker images, so separate host installations may not be necessary.
-
----
 
 ## 7. Application Configuration
 
@@ -393,8 +441,6 @@ The frontend employee management module supports `VITE_API_BASE_URL`, defaulting
 Inside Docker, the backend should normally connect to MySQL using the Compose service name `mysql`, rather than `localhost`.
 
 Never commit real credentials or production secrets. Provide a sanitized `.env.example` containing placeholders when preparing the repository for submission.
-
----
 
 ## 8. Installation and Setup
 
@@ -431,6 +477,8 @@ The expected service names are:
 - `backend`
 - `mysql`
 
+The service names shown by `docker compose ps` should match the actual service names defined in `docker-compose.yml`. In the current project, the containers have appeared as `hrms_frontend`, `hrms_backend`, and `hrms_mysql`.
+
 ### Step 5: Apply database migrations
 
 ```powershell
@@ -460,8 +508,6 @@ Visit:
 `http://localhost:8002/admin/`
 
 Sign in using an appropriate Django administrator account.
-
----
 
 ## 9. Docker Management Commands
 
@@ -507,9 +553,7 @@ docker compose up -d --build
 docker compose down
 ```
 
-**Warning:** Do not run `docker compose down -v` unless you intentionally want to remove the Compose volumes and understand the impact on persisted data.
-
----
+**Warning:** Do not run `docker compose down -v` unless you intentionally want to remove the Compose volumes and understand the impact on persisted data. Removing volumes can permanently delete the database data stored in them.
 
 ## 10. Database Design
 
@@ -548,6 +592,24 @@ The `LeaveBalance` model tracks:
 
 A uniqueness constraint prevents duplicate balance records for the same employee, leave type, and year.
 
+### Salary component data
+
+The `EmployeeSalaryComponent` model stores recurring salary components associated with employees.
+
+The component information includes:
+
+- Employee reference.
+- Component name.
+- Component type, such as EARNING or DEDUCTION.
+- Amount.
+- Active status.
+- Effective-from date.
+- Optional effective-to date.
+
+The payroll calculation uses applicable component records for the selected payroll period and saves the calculation details in the payroll record's component snapshot.
+
+The exact database table names are defined by Django's model configuration and migrations.
+
 ### Payroll data
 
 The `PayrollRecord` model stores:
@@ -557,7 +619,10 @@ The `PayrollRecord` model stores:
 - Base salary.
 - LOP days.
 - LOP deduction.
+- Gross salary.
+- Total deductions.
 - Net salary.
+- Salary component snapshot.
 - Payroll status.
 - User who generated the record.
 - Creation and update timestamps.
@@ -575,10 +640,6 @@ The `SalaryPayment` model associates a payment record with a payroll record and 
 - User who processed the operation.
 
 The one-to-one relationship prevents multiple payment records from being attached to the same payroll record through this model.
-
-The exact database table names are defined by Django's model configuration and migrations.
-
----
 
 ## 11. API Documentation
 
@@ -600,8 +661,9 @@ Base path: `/api/accounts/`
 |---|---|---|
 | POST | `/api/accounts/login/` | Authenticate a user |
 | GET | `/api/accounts/me/` | Retrieve the current user's profile |
+| POST | `/api/accounts/token/refresh/` | Refresh the access token, if configured |
 
-Other authentication endpoints, including registration, refresh, or logout, should be documented according to the routes actually configured in `accounts/urls.py`.
+Other authentication endpoints, including registration or logout, should be documented according to the routes actually configured in `accounts/urls.py`.
 
 ### 11.2 Employee APIs
 
@@ -610,6 +672,7 @@ Base path: `/api/employees/`
 | Method | Endpoint | Purpose |
 |---|---|---|
 | GET | `/api/employees/` | Retrieve employee records, subject to permissions |
+| POST | `/api/employees/` | Create an employee if supported by the configured API |
 | PATCH/PUT | `/api/employees/<id>/` | Update an employee, subject to permissions |
 
 Confirm the exact HTTP methods, creation routes, and detail routes in the current employee URL configuration.
@@ -650,8 +713,18 @@ Base path: `/api/payroll/`
 | POST | `/api/payroll/<id>/lock/` | Lock a Draft payroll record |
 | POST | `/api/payroll/<id>/pay/` | Simulate payment for a Locked payroll record |
 | GET | `/api/payroll/<id>/salary-slip/` | Download an eligible salary slip PDF |
+| GET | `/api/payroll/salary-components/` | List salary components, subject to permissions |
+| POST | `/api/payroll/salary-components/` | Create a salary component, subject to permissions |
+| GET | `/api/payroll/salary-components/<id>/` | Retrieve a salary component, if supported by the configured detail view |
+| PATCH/PUT | `/api/payroll/salary-components/<id>/` | Update a salary component, subject to permissions |
 
-### Example payroll generation request
+The salary component list endpoint can accept an employee filter, such as:
+
+`/api/payroll/salary-components/?employee_id=<employee_id>`
+
+Confirm supported HTTP methods and permissions in the actual payroll URL configuration and view classes before treating every listed method as available.
+
+#### Example payroll generation request
 
 ```json
 {
@@ -663,7 +736,25 @@ Base path: `/api/payroll/`
 
 Use the actual employee database ID. The backend accepts completed payroll months according to its validation rules.
 
-### API error handling
+#### Example salary component
+
+An illustrative salary component request may resemble the following. Use the actual employee ID, approved amount, and effective dates.
+
+```json
+{
+  "employee": 1,
+  "name": "HRA",
+  "component_type": "EARNING",
+  "amount": "10000.00",
+  "is_active": true,
+  "effective_from": "2026-09-01",
+  "effective_to": null
+}
+```
+
+The exact accepted request fields depend on the serializer. Confirm whether the API expects `employee` or another employee identifier before sending the request.
+
+#### API error handling
 
 API requests may return errors when:
 
@@ -673,50 +764,72 @@ API requests may return errors when:
 - A payroll record has an incompatible status.
 - A requested employee or record does not exist.
 - The requested payroll period is not allowed.
+- A salary component has invalid dates or amounts.
 
 Clients should handle the HTTP response status and response body rather than assuming every request succeeds.
 
----
-
 ## 12. Payroll Business Logic
 
-The payroll module calculates employee salary for a selected completed month using the employee's base salary, attendance information, approved leave, and applicable loss-of-pay rules.
+The payroll module calculates employee salary for a selected completed month using the employee's base salary, attendance information, approved leave, applicable loss-of-pay rules, and configured salary components.
 
 ### Payroll calculation workflow
 
 1. The authorized user selects an employee and completed month.
 2. The backend validates the employee and payroll period.
-3. The calculation retrieves the employee's salary.
+3. The calculation retrieves the employee's base salary.
 4. The calculation examines attendance and approved leave records.
 5. Loss-of-pay days and the corresponding deduction are calculated.
-6. The net salary is calculated.
-7. A Draft payroll record is created or an existing Draft record is recalculated.
-8. An authorized HR user reviews and locks the payroll.
-9. An authorized HR user can invoke the simulated payment operation.
-10. The system stores the simulated payment reference and updates the payroll status.
-11. An eligible salary slip can be downloaded.
+6. Applicable earning and deduction components are retrieved using their active status and effective dates.
+7. Applicable component amounts are calculated, including partial-month proration where implemented.
+8. The calculation determines gross salary, total deductions, and net salary.
+9. A Draft payroll record is created or an eligible existing Draft record is recalculated.
+10. The salary component calculation details are saved as a snapshot.
+11. An authorized HR user reviews and locks the payroll.
+12. An authorized HR user can invoke the simulated payment operation.
+13. The system stores the simulated payment reference and updates the payroll status.
+14. An eligible salary slip can be downloaded.
+
+### Gross salary
+
+The calculation generally follows this relationship when salary components are included:
+
+`Gross Salary = Base Salary + Applicable Earning Components`
+
+### Total deductions
+
+The calculation generally follows this relationship:
+
+`Total Deductions = LOP Deduction + Applicable Deduction Components`
+
+The exact treatment of each component must follow the implemented payroll rules and approved company policy.
 
 ### Net salary
 
-The basic relationship is:
+The calculation generally follows this relationship:
 
-`Net Salary = Base Salary - LOP Deduction`
+`Net Salary = Gross Salary - Total Deductions`
 
-The precise LOP deduction depends on the payroll calculation implemented in the backend.
+The implemented calculation may apply a minimum of zero to the resulting net salary.
+
+### Salary component effective dates
+
+Salary components should be configured with their approved effective dates.
+
+For example, a monthly HRA component with an effective-from date of September 1, 2026, is not applicable to June 2026 merely because it exists today. June payroll should use the components and amounts actually approved and effective for June.
+
+When a component is applicable for only part of a month, the implemented calculation may prorate the amount based on the applicable calendar days. Confirm the configured rules before using the result for actual payroll.
 
 ### Payroll safeguards
 
 - Only completed months can be generated.
 - Payroll records are unique for an employee and period.
-- Only Draft records are recalculated by the generator.
+- Only eligible Draft records are recalculated by the generator.
 - Only Draft records can be locked through the configured lock operation.
 - Simulated payment requires a Locked record.
 - Salary slip downloads are restricted by payroll status and access permissions.
-- Changing the employee's salary does not automatically recalculate an existing Locked or Paid payroll record.
+- Changing the employee's salary or salary components does not automatically recalculate an existing Locked or Paid payroll record.
 
-Before production use, verify that the backend rejects payroll periods that end before the employee's joining date and test the calculation against known attendance and leave scenarios.
-
----
+Before production use, verify that the backend rejects payroll periods that end before the employee's joining date and test the calculation against known attendance, leave, salary, and component scenarios.
 
 ## 13. Salary Slip PDF Generation
 
@@ -728,7 +841,7 @@ The project uses ReportLab to generate salary slips.
 2. The backend checks authentication.
 3. The backend verifies whether the requester is the employee concerned or an authorized HR user.
 4. The backend checks that the payroll status permits a salary slip.
-5. ReportLab generates the PDF document.
+5. ReportLab generates the PDF using the saved payroll data.
 6. The PDF is returned as a downloadable response.
 
 ### PDF contents
@@ -738,14 +851,41 @@ The salary slip can include:
 - Employee information.
 - Payroll period.
 - Base salary.
+- Earning components such as HRA, travel allowance, and monthly bonus, when present in the saved snapshot.
+- Applicable deduction components.
+- Gross salary.
 - LOP days.
 - LOP deduction.
+- Total deductions.
 - Net salary.
 - Simulated payment reference and status when applicable.
 
-The generated document is based on the saved payroll record. A salary change made after a record has been locked or paid does not automatically alter that historical record.
+### Downloading a salary slip
 
----
+The configured route is:
+
+`GET /api/payroll/<payroll_id>/salary-slip/`
+
+For the current local configuration, an example URL is:
+
+`http://localhost:8002/api/payroll/1/salary-slip/`
+
+Replace `1` with the actual payroll record ID.
+
+The endpoint requires a valid JWT access token. Opening the URL directly in a browser without authentication can return `401 Unauthorized`.
+
+In Postman:
+
+1. Run the login request in the authentication folder.
+2. Confirm that the login response contains an `access` token.
+3. Ensure the collection's Bearer Token authentication uses `{{access_token}}`.
+4. Set the request to `GET`.
+5. Send the salary slip request.
+6. Save the response as a PDF file if the request succeeds and the response is a valid PDF.
+
+The generated document is based on the saved payroll record. A salary change or allowance added after a record has been locked or paid does not automatically alter that historical record.
+
+If an existing payroll snapshot does not contain the required salary components, inspect its status before deciding how to correct it. Do not directly modify a Paid payroll record to force allowance lines into the PDF.
 
 ## 14. Leave CSV Reporting
 
@@ -762,8 +902,6 @@ The Leave Management module provides a CSV export endpoint for authorized HR use
 CSV files can be opened in spreadsheet applications for sorting, filtering, and analysis.
 
 Access to exported reports should be restricted because they may contain personal and employment information.
-
----
 
 ## 15. Database Backup and Restore
 
@@ -815,7 +953,7 @@ Verify the database name and credentials before restoring. This command should n
 
 The SQL dump may contain employee names, phone numbers, addresses, salaries, leave records, attendance, and payroll information. Store it securely and share it only through an approved submission channel.
 
----
+Do not include real employee data in a public repository.
 
 ## 16. Testing and Quality Assurance
 
@@ -863,13 +1001,26 @@ The application should be verified through functional testing, API testing, perm
 - Verify base salary.
 - Verify attendance and leave inputs.
 - Verify LOP days and deductions.
+- Verify applicable earning and deduction components.
+- Check salary component effective dates.
+- Check partial-month component proration where applicable.
+- Verify gross salary, total deductions, and net salary.
 - Confirm duplicate employee-period records are not created.
 - Verify Draft-to-Locked status transitions.
 - Confirm payment simulation cannot run before locking.
 - Confirm a simulated payment creates the expected payment record.
 - Download and inspect the salary slip.
+- Confirm expected salary components appear in the PDF when included in the saved snapshot.
 - Confirm employees cannot download other employees' salary slips.
 - Verify historical Locked and Paid records are not silently recalculated.
+
+### Postman API tests
+
+The Postman collection can be used to test authentication, employee management, attendance, leave, payroll, salary components, salary slip downloads, and security behavior.
+
+Run login first so the collection can save the access token. Use valid employee and payroll IDs. Review state-changing operations before executing them.
+
+A successful HTTP response alone does not prove that the business logic is correct. Verify the returned values and saved database records.
 
 ### Deployment and backup tests
 
@@ -881,8 +1032,6 @@ The application should be verified through functional testing, API testing, perm
 - Test restoration in a separate database.
 
 Only mark a test as passed after executing it and verifying the actual result. Add automated test coverage figures only after measuring the test suite.
-
----
 
 ## 17. Troubleshooting
 
@@ -910,7 +1059,7 @@ Check Docker Desktop and inspect the logs of the service that failed.
 - Send the token using the Authorization header.
 - Check token expiry.
 - Verify the backend authentication configuration.
-- Confirm that the frontend is sending the expected token.
+- Confirm that the frontend or Postman collection is sending the expected token.
 
 ### API returns 403 Forbidden
 
@@ -921,8 +1070,28 @@ The user may be authenticated but lack the required permission. Verify the accou
 - Verify the employee's saved salary.
 - Check whether the payroll record was generated before the salary was updated.
 - Inspect attendance and approved leave data.
-- Check the payroll status.
+- Inspect the payroll status.
+- Check whether applicable salary components were configured for that payroll period.
+- Inspect the saved salary component snapshot.
 - Remember that Locked and Paid records are not automatically recalculated.
+
+### Allowances do not appear on the salary slip
+
+- Confirm that the employee has the required salary component records.
+- Verify each component's amount, type, active status, and effective dates.
+- Confirm that the component was effective during the requested payroll month.
+- Inspect the payroll record's saved `salary_components` snapshot.
+- Confirm that the PDF generation code renders the earning and deduction entries from that snapshot.
+- Check whether the payroll record is Draft, Locked, or Paid before attempting any correction.
+
+The PDF download endpoint uses the saved payroll data. Adding an allowance today will not automatically insert it into a historical Locked or Paid record.
+
+### Salary slip returns 401 Unauthorized
+
+- Run the login request.
+- Confirm that an access token was returned.
+- Send the request with `Authorization: Bearer <access_token>`.
+- Verify that the token belongs to a user allowed to access the payroll record.
 
 ### Database dump is empty or missing
 
@@ -931,8 +1100,6 @@ The user may be authenticated but lack the required permission. Verify the accou
 - Re-run the export.
 - Check the SQL file size and contents.
 - Test restoration into a separate database.
-
----
 
 ## 18. Security and Privacy
 
@@ -949,10 +1116,12 @@ The project should follow these security practices:
 - Back up the database and periodically test recovery.
 - Do not use production payroll data for experiments.
 - Do not represent simulated salary payment as a real bank transaction.
+- Validate salary component amounts and effective dates.
+- Preserve historical payroll records and their component snapshots.
+- Restrict salary component creation and updates to authorized users.
+- Protect salary slips and payroll exports from unauthorized access.
 
 Before deployment, review `DEBUG`, allowed hosts, CORS, secret management, database access, and token handling for the intended environment.
-
----
 
 ## 19. Git and GitHub Submission
 
@@ -960,14 +1129,15 @@ Before submitting the project:
 
 1. Verify the application starts successfully.
 2. Confirm that employee, attendance, leave, and payroll workflows work.
-3. Verify the database dump.
-4. Include this README.
-5. Include a sanitized `.env.example`.
-6. Add relevant UI screenshots.
-7. Include API documentation or a Postman collection if required.
-8. Remove secrets, real credentials, and private employee information.
-9. Confirm that the repository contains the required source files.
-10. Add the actual GitHub repository URL below.
+3. Verify salary component configuration and salary slip generation.
+4. Verify the database dump.
+5. Include this README.
+6. Include a sanitized `.env.example`.
+7. Add relevant UI screenshots.
+8. Include API documentation or a Postman collection if required.
+9. Remove secrets, real credentials, and private employee information.
+10. Confirm that the repository contains the required source files.
+11. Add the actual GitHub repository URL below.
 
 Example Git commands:
 
@@ -993,14 +1163,14 @@ These commands assume that Git is initialized, the repository has a configured r
 
 Do not place administrator passwords in the public README.
 
----
-
 ## 20. Current Limitations
 
 - Salary payment is simulated and does not transfer real funds.
 - Payroll generation is limited to completed months.
-- Payroll results depend on correct salary, attendance, and approved leave data.
-- Historical Locked and Paid payroll records are not automatically recalculated after salary changes.
+- Payroll results depend on correct salary, attendance, approved leave, and salary component data.
+- Salary components must be configured with the correct approved amounts and effective dates.
+- Historical Locked and Paid payroll records are not automatically recalculated after salary or component changes.
+- A salary slip uses the saved payroll record and its salary component snapshot.
 - Exact account and attendance API routes should be confirmed against the repository's URL configuration.
 - Production readiness requires additional security review, automated testing, deployment configuration, and backup verification.
 
@@ -1015,6 +1185,9 @@ Possible enhancements include:
 - Continuous integration and deployment.
 - Production monitoring and error reporting.
 - Additional employee self-service features.
+- Payroll correction and revision workflows with authorization and audit trails.
+- Configurable salary structures and organization-specific payroll policies.
+- Detailed salary-slip templates with company information and itemized earnings and deductions.
 
 These are proposed improvements, not claims that they are already implemented.
 
@@ -1024,7 +1197,9 @@ The HRMS project brings employee management, attendance, leave administration, a
 
 React provides the user interface, Django REST Framework handles business logic and API requests, MySQL stores persistent records, and Docker Compose simplifies the development environment. JWT authentication and backend permission checks protect restricted operations, while ReportLab and CSV export support document generation and reporting.
 
-The project demonstrates full-stack development concepts, REST API integration, relational database management, authentication, business-rule validation, payroll workflows, document generation, containerization, and database backup procedures.
+The payroll module supports base salary calculations, applicable salary components, allowances, deductions, payroll status management, simulated payment processing, and salary slip generation using saved payroll data.
+
+The project demonstrates full-stack development concepts, REST API integration, relational database management, authentication, business-rule validation, payroll workflows, salary component management, document generation, containerization, and database backup procedures.
 
 ## 23. Project Information
 
@@ -1040,7 +1215,12 @@ The project demonstrates full-stack development concepts, REST API integration, 
 
 **Deployment Environment:** Docker Compose
 
+**PDF Generation:** ReportLab
+
+**API Testing:** Postman
+
 **Author:** Ramkumar S.
 
 ---
 
+**Important implementation note:** This README describes the intended and known project behavior. Confirm each endpoint, permission, UI feature, and calculation against the current repository and actual test results before presenting it as verified functionality. Use only approved salary component amounts and effective dates for real payroll calculations.

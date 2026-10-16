@@ -7,6 +7,7 @@ from .views import (
     MyAttendanceView,
     AllAttendanceView,
     AttendanceCSVReportView,
+    MyAttendanceSummaryView,
 )
 
 urlpatterns = [
@@ -15,4 +16,10 @@ urlpatterns = [
     path("my/", MyAttendanceView.as_view(), name="my-attendance"),
     path("all/", AllAttendanceView.as_view(), name="all-attendance"),
     path("report/csv/", AttendanceCSVReportView.as_view(), name="attendance-csv-report"),
+    path(
+    "my/summary/",
+    MyAttendanceSummaryView.as_view(),
+    name="my-attendance-summary",
+),
+    
 ]

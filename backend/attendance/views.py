@@ -18,7 +18,9 @@ from django.http import HttpResponse
 from django.utils.dateparse import parse_date
 from rest_framework.permissions import IsAuthenticated
 from accounts.permissions import IsAdminOrHR
-
+import calendar
+from datetime import date, timedelta
+from holidays.utils import get_holiday_dates
 
 def get_active_employee(user):
     # Find the employee profile linked to the logged-in user.
@@ -263,3 +265,98 @@ class AttendanceCSVReportView(APIView):
             ])
 
         return response
+
+class MyAttendanceSummaryView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        employee = get_active_employee(request.user)
+
+        if employee is None:
+            return Response(
+                {"detail": "No active employee profile found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        today = timezone.localdate()
+
+        try:
+            year = int(request.query_params.get("year", today.year))
+            month = int(request.query_params.get("month", today.month))
+
+            if not 2000 <= year <= 2100:
+                raise ValueError
+
+            if not 1 <= month <= 12:
+                raise ValueError
+
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "Provide a valid year and month (1-12)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        start_date = date(year, month, 1)
+        end_date = date(
+            year,
+            month,
+            calendar.monthrange(year, month)[1],
+        )
+
+        # Do not count future dates as expected working days.
+        effective_end = min(end_date, today)
+
+        if effective_end < start_date:
+            effective_end = start_date - timedelta(days=1)
+
+        if effective_end >= start_date:
+            weekdays = {
+                day
+                for day in (
+                    start_date + timedelta(days=offset)
+                    for offset in range((effective_end - start_date).days + 1)
+                )
+                if day.weekday() < 5
+            }
+
+            holiday_dates = get_holiday_dates(
+                employee,
+                start_date,
+                effective_end,
+            )
+
+            # Holidays are removed from the expected working days.
+            working_dates = weekdays - holiday_dates
+
+            attendance_dates = set(
+                Attendance.objects.filter(
+                    employee=employee,
+                    date__range=(start_date, effective_end),
+                    check_out__isnull=False,
+                ).values_list("date", flat=True)
+            )
+
+            attended_workdays = attendance_dates & working_dates
+            missing_workdays = working_dates - attendance_dates
+
+        else:
+            holiday_dates = set()
+            working_dates = set()
+            attended_workdays = set()
+            missing_workdays = set()
+
+        return Response({
+            "year": year,
+            "month": month,
+            "as_of_date": today.isoformat(),
+            "total_weekdays_so_far": len(
+                weekdays if effective_end >= start_date else set()
+            ),
+            "applicable_holidays_so_far": len(holiday_dates),
+            "expected_workdays_so_far": len(working_dates),
+            "attended_workdays": len(attended_workdays),
+            "missing_workdays": len(missing_workdays),
+            "holiday_dates": sorted(
+                day.isoformat() for day in holiday_dates
+            ),
+        })

@@ -47,6 +47,9 @@ INSTALLED_APPS = [
     "attendance",
     "leaves",
     "payroll",
+    "holidays",
+    "notifications",
+    "shifts",
 ]
 
 MIDDLEWARE = [

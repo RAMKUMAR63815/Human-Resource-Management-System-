@@ -18,6 +18,11 @@ import csv
 
 from django.http import HttpResponse
 from django.utils.dateparse import parse_date
+from django.contrib.auth import get_user_model
+from django.db.models import Q
+
+from notifications.models import Notification
+from notifications.services import notify_employee, notify_users
 
 
 class MyLeaveRequestsView(generics.ListCreateAPIView):
@@ -35,17 +40,44 @@ class MyLeaveRequestsView(generics.ListCreateAPIView):
 
     def perform_create(self, serializer):
         employee = Employee.objects.filter(
-            user=self.request.user,
-            is_active=True,
-        ).first()
+        user=self.request.user,
+        is_active=True,
+    ).first()
 
         if employee is None:
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied(
-                "No active employee profile found."
-            )
+            "No active employee profile found."
+        )
 
-        serializer.save(employee=employee)
+    # Save the leave request first.
+        leave = serializer.save(employee=employee)
+
+    # Find active Admin and HR users.
+        User = get_user_model()
+
+        hr_users = User.objects.filter(
+        is_active=True,
+    ).filter(
+        Q(is_superuser=True)
+        | Q(hrms_profile__role__in=["ADMIN", "HR"])
+    ).distinct()
+
+    # Notify Admin/HR after the database transaction commits.
+        from django.db import transaction
+
+        transaction.on_commit(
+            lambda: notify_users(
+            users=hr_users,
+            title="New leave request",
+            message=(
+                f"{employee.user.get_full_name() or employee.user.username} "
+                f"submitted a {leave.leave_type} leave request "
+                f"from {leave.start_date} to {leave.end_date}."
+            ),
+            notification_type=Notification.NotificationType.LEAVE,
+        )
+    )
 
 
 class AllLeaveRequestsView(generics.ListAPIView):
@@ -236,6 +268,34 @@ class LeaveReviewView(APIView):
                 {"detail": "Leave request not found."},
                 status=status.HTTP_404_NOT_FOUND,
             )
+                # Step 8: Notify the employee after the review transaction succeeds.
+        decision_message = (
+            "approved"
+            if decision == LeaveRequest.Status.APPROVED
+            else "rejected"
+        )
+
+        notify_employee(
+            employee=leave.employee,
+            title=f"Leave request {decision_message}",
+            message=(
+                f"Your {leave.leave_type} leave request "
+                f"from {leave.start_date} to {leave.end_date} "
+                f"has been {decision_message}."
+                + (
+                    f" Reviewer comment: {comment}"
+                    if comment
+                    else ""
+                )
+            ),
+            notification_type=Notification.NotificationType.LEAVE,
+        )
+
+        # Step 9: Return the updated leave request.
+        return Response(
+            LeaveRequestSerializer(leave).data,
+            status=status.HTTP_200_OK,
+        )
 
         # Step 8: Return the updated leave request.
         return Response(

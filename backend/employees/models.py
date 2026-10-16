@@ -23,6 +23,7 @@ class Employee(models.Model):
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    region = models.CharField(max_length=100, blank=True, default="")
 
     def __str__(self):
         return f"{self.employee_code} - {self.user.username}"
